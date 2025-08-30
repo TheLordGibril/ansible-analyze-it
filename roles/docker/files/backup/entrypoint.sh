@@ -30,11 +30,13 @@ pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" "$DB_NAME" > "$BACKUP_FILE"
 echo "Backup créé : $BACKUP_FILE"
 
 # Conserver uniquement les 7 backups les plus récents
-if [ "$TOTAL" -gt 7 ]; then
-  ls -1t "$BACKUP_DIR"/db_*.sql | tail -n +8 | xargs rm -f
-  echo "Rotation effectuée (conservation des 7 derniers backups)."
+TOTAL_BACKUPS=$(ls -1t "$BACKUP_DIR"/db_*.sql 2>/dev/null | wc -l)
+
+if [ "$TOTAL_BACKUPS" -gt 7 ]; then
+    ls -1t "$BACKUP_DIR"/db_*.sql | tail -n +8 | xargs rm -f
+    echo "Rotation effectuée (conservation des 7 derniers backups)."
 else
-  echo "Moins de 7 backups, aucune rotation nécessaire."
+    echo "Moins de 7 backups, aucune rotation nécessaire."
 fi
 
 echo "=== Backup terminé avec succès ==="
