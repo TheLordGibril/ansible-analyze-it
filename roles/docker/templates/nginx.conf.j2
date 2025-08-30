@@ -1,0 +1,45 @@
+{% if item == "france" %}
+upstream frontend_france_cluster {
+    server frontend-france-1:80;
+    server frontend-france-2:80;
+}
+upstream api_ia_france {
+    server api-ia-france:8000;
+}
+server {
+    listen 3002;
+    server_name localhost;
+    location / { proxy_pass http://frontend_france_cluster; }
+    location /api/ { proxy_pass http://api_ia_france/; }
+}
+{% elif item == "suisse" %}
+upstream frontend_suisse_cluster {
+    server frontend-suisse-1:80;
+    server frontend-suisse-2:80;
+}
+upstream api_ia_suisse {
+    server api-ia-suisse:8000;
+}
+server {
+    listen 3004;
+    server_name localhost;
+    location / { proxy_pass http://frontend_suisse_cluster; }
+    location /api/ { proxy_pass http://api_ia_suisse/; }
+}
+{% elif item == "usa" %}
+upstream backend_usa_cluster {
+    server backend-usa-1:4000;
+    server backend-usa-2:4000;
+}
+upstream frontend_usa_cluster {
+    server frontend-usa-1:80;
+    server frontend-usa-2:80;
+}
+server {
+    listen 3000;
+    server_name localhost;
+    location /graphql { proxy_pass http://backend_usa_cluster; }
+    location / { proxy_pass http://frontend_usa_cluster; }
+}
+{% endif %}
+

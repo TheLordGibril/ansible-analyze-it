@@ -1,0 +1,90 @@
+- name: Déploiement multi-pays
+  hosts: all
+  become: true
+  vars:
+    countries:
+      suisse:
+        nginx_port: "3004:3004"
+        nginx_conf: "/home/gabriel/prod/suisse/nginx.conf"
+
+        nginx_depends_on:
+          - "frontend-suisse-1"
+          - "frontend-suisse-2"
+          - "api-ia-suisse"
+
+        db_port: 5434
+        cadvisor_port: "8084:8084"
+      france:
+        nginx_port: "3002:3002"
+        nginx_conf: "/home/gabriel/prod/france/nginx.conf"
+
+        nginx_depends_on:
+          - "frontend-france-1"
+          - "frontend-france-2"
+          - "api-ia-france"
+
+        db_port: 5433
+        cadvisor_port: "8082:8082"
+      usa:
+        nginx_port: "3000:3000"
+        nginx_conf: "/home/gabriel/prod/usa/nginx.conf"
+
+        nginx_depends_on:
+          - "frontend-usa-1"
+          - "frontend-usa-2"
+          - "backend-usa-1"
+          - "backend-usa-2"
+
+        db_port: 5432
+        cadvisor_port: "8080:8080"
+  vars_files:
+    - vault.yml
+  roles:
+    - docker
+
+  tasks:
+    - name: Installer Docker & Docker Compose
+      ansible.builtin.apt:
+        name: "{{ item }}"
+        state: present
+        update_cache: yes
+      loop:
+        - docker.io
+        - docker-compose-plugin
+
+    - name: Créer répertoire projet
+      ansible.builtin.file:
+        path: /opt/myapp/{{ country }}
+        state: directory
+        mode: '0755'
+
+    - name: Copier docker-compose.yml
+      ansible.builtin.copy:
+        src: "prod/{{ country }}/docker-compose.yml"
+        dest: "/opt/myapp/{{ country }}/docker-compose.yml"
+        mode: '0644'
+
+    - name: Copier nginx.conf
+      ansible.builtin.copy:
+        src: "prod/{{ country }}/nginx.conf"
+        dest: "/opt/myapp/{{ country }}/nginx.conf"
+        mode: '0644'
+
+    - name: Copier .env
+      ansible.builtin.copy:
+        src: "prod/{{ country }}/.env"
+        dest: "/opt/myapp/{{ country }}/.env"
+        mode: '0600'
+
+    - name: Copier scripts de backup
+      ansible.builtin.copy:
+        src: "prod/{{ country }}/backup/"
+        dest: "/opt/myapp/{{ country }}/backup/"
+        mode: '0755'
+
+    - name: Démarrer docker-compose
+      ansible.builtin.shell: |
+        docker compose --env-file /opt/myapp/{{ country }}/.env -f /opt/myapp/{{ country }}/docker-compose.yml up -d
+      args:
+        chdir: "/opt/myapp/{{ country }}"
+

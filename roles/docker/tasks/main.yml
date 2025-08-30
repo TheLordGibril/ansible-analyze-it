@@ -1,0 +1,95 @@
+---
+- name: Install prerequisites
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+    state: present
+    update_cache: yes
+
+- name: Copier la clé Docker sur la VM
+  ansible.builtin.copy:
+    src: docker.gpg
+    dest: /tmp/docker.gpg
+    mode: '0644'
+
+- name: Ajouter la clé Docker
+  ansible.builtin.apt_key:
+    file: /tmp/docker.gpg
+    state: present
+
+- name: Add Docker repository
+  ansible.builtin.apt_repository:
+    repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_lsb.codename }} stable
+    state: present
+    filename: docker
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: yes
+
+- name: Install Docker packages
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-compose-plugin
+    state: present
+
+- name: Ensure docker service is running
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: yes
+- name: Créer répertoires par pays
+  file:
+    path: "{{ app_root }}/{{ item }}"
+    state: directory
+    recurse: yes
+  loop: "{{ countries.keys() }}"
+
+- name: Copier .env par pays
+  template:
+    src: env.j2
+    dest: "{{ app_root }}/{{ item }}/.env"
+    mode: '0644'
+  loop: "{{ countries.keys() }}"
+
+- name: Copier docker-compose.yml par pays
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ app_root }}/{{ item }}/docker-compose.yml"
+    mode: '0644'
+  loop: "{{ countries.keys() }}"
+
+- name: Copier nginx.conf par pays
+  template:
+    src: nginx.conf.j2
+    dest: "{{ app_root }}/{{ item }}/nginx.conf"
+    mode: '0644'
+  loop: "{{ countries.keys() }}"
+
+- name: Copier scripts de backup
+  copy:
+    src: backup/
+    dest: "{{ app_root }}/{{ item }}/backup/"
+    mode: '0755'
+  loop: "{{ countries.keys() }}"
+
+- name: Login to GitHub Container Registry
+  community.docker.docker_login:
+    registry_url: ghcr.io
+    username: "thelordgibril"
+    password: "{{ ghcr_token }}" 
+
+- name: Lancer docker compose par pays
+  community.docker.docker_compose_v2:
+    project_src: "{{ app_root }}/{{ item }}"
+    state: present
+    pull: always
+  loop: "{{ countries.keys() }}"
+

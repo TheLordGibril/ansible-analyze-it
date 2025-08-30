@@ -1,0 +1,9 @@
+---
+# Pays à déployer (boucle)
+countries:
+  - suisse
+  - france
+  - usa
+
+app_root: "/home/{{ ansible_user }}/prod"
+

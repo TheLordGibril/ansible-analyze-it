@@ -1,0 +1,182 @@
+networks:
+  {{ item }}:
+    driver: bridge
+
+volumes:
+  postgres-{{ item }}-data:
+
+services:
+  postgres-{{ item }}:
+    image: postgres:15-alpine
+    container_name: postgres-{{ item }}
+    environment:
+      POSTGRES_DB: oms_{{ item }}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_HOST_AUTH_METHOD: md5
+    volumes:
+      - postgres-{{ item }}-data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    ports:
+      - "{{ 5434 if item == 'suisse' else 5433 if item == 'france' else 5435 }}:5432"
+    networks:
+      - {{ item }}
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+{% if item == 'usa' %}
+  backend-usa-1:
+    image: ghcr.io/thelordgibril/analyze-it/backend-usa:latest
+    container_name: backend-usa-1
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres-usa:5432/oms_usa
+      KEY: ${JWT_SECRET}
+      JWT_EXPIRES: ${JWT_EXPIRES}
+      API_IA_URL: ${API_IA_URL}
+      PORT: ${PORT_BACKEND}
+      GDPR_MODE: ${GDPR_MODE}
+      LOCALE: ${LOCALE}
+    depends_on:
+      postgres-usa:
+        condition: service_healthy
+    networks:
+      - {{ item }}
+    restart: unless-stopped
+
+  backend-usa-2:
+    image: ghcr.io/thelordgibril/analyze-it/backend-usa:latest
+    container_name: backend-usa-2
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres-usa:5432/oms_usa
+      KEY: ${JWT_SECRET}
+      JWT_EXPIRES: ${JWT_EXPIRES}
+      API_IA_URL: ${API_IA_URL}
+      PORT: ${PORT_BACKEND}
+      GDPR_MODE: ${GDPR_MODE}
+      LOCALE: ${LOCALE}
+    depends_on:
+      postgres-usa:
+        condition: service_healthy
+    networks:
+      - {{ item }}
+    restart: unless-stopped
+{% endif %}
+
+  api-ia-{{ item }}:
+    image: ghcr.io/thelordgibril/analyze-it/api-ia-{{ item }}:latest
+    container_name: api-ia-{{ item }}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres-{{ item }}:5432/oms_{{ item }}
+      PYTHONUNBUFFERED: 1
+      GDPR_MODE: true
+    ports:
+      - "{{ 8004 if item == 'suisse' else 8002 if item == 'france' else 8000 }}:8000"
+    depends_on:
+      postgres-{{ item }}:
+        condition: service_healthy
+    networks:
+      - {{ item }}
+    restart: unless-stopped
+
+  frontend-{{ item }}-1:
+    image: ghcr.io/thelordgibril/analyze-it/frontend-{{ item }}:latest
+    environment:
+      VITE_API_URL: ${VITE_API_URL}
+      VITE_COUNTRY: ${VITE_COUNTRY}
+      VITE_LOCALE: ${VITE_LOCALE}
+      VITE_GDPR_MODE: ${VITE_GDPR_MODE}
+{% if VITE_MULTI_LANG is defined %}
+      VITE_MULTI_LANG: {{ VITE_MULTI_LANG }}
+{% endif %}
+    container_name: frontend-{{ item }}-1
+    networks:
+      - {{ item }}
+    restart: unless-stopped
+
+  frontend-{{ item }}-2:
+    image: ghcr.io/thelordgibril/analyze-it/frontend-{{ item }}:latest
+    environment:
+      VITE_API_URL: ${VITE_API_URL}
+      VITE_COUNTRY: ${VITE_COUNTRY}
+      VITE_LOCALE: ${VITE_LOCALE}
+      VITE_GDPR_MODE: ${VITE_GDPR_MODE}
+{% if VITE_MULTI_LANG is defined %}
+      VITE_MULTI_LANG: {{ VITE_MULTI_LANG }}
+{% endif %}
+    container_name: frontend-{{ item }}-2
+    networks:
+      - {{ item }}
+    restart: unless-stopped
+
+  etl-{{ item }}:
+    image: ghcr.io/thelordgibril/analyze-it/etl-{{ item }}:latest
+    container_name: etl-{{ item }}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres-{{ item }}:5432/oms_{{ item }}
+      PYTHONUNBUFFERED: 1
+      GDPR_MODE: true
+      CSV_FILE_PATH: ${CSV_FILE_PATH}
+    depends_on:
+      postgres-{{ item }}:
+        condition: service_healthy
+    networks:
+      - {{ item }}
+    restart: unless-stopped
+
+  nginx-{{ item }}:
+    image: nginx:alpine
+    container_name: nginx-{{ item }}
+    ports:
+      - {{ countries[item]['nginx_port'] }}
+    depends_on:
+{% for dep in countries[item]['nginx_depends_on'] %}
+      - {{ dep }}
+{% endfor %}
+    networks:
+      - {{ item }}
+    volumes:
+      - /home/gabriel/prod/{{ item }}/nginx.conf:/etc/nginx/conf.d/default.conf
+    restart: unless-stopped
+
+  watchtower-{{ item }}:
+    image: containrrr/watchtower
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ~/.docker/config.json:/config.json:ro
+    command: --interval 300 --debug
+
+  cadvisor-{{ item }}:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor-{{ item }}
+    ports:
+      - {{ countries[item]['cadvisor_port'] }}
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/snap/docker/common/var-lib-docker:/var/lib/docker:ro
+    restart: unless-stopped
+
+  backup-{{ item }}:
+    build: ./backup
+    depends_on:
+      postgres-{{ item }}:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres-{{ item }}
+      DB_USER: ${POSTGRES_USER:-postgres}
+      DB_PASS: ${POSTGRES_PASSWORD:-1234}
+      DB_NAME: oms_{{ item }}
+      DB_PORT: 5432
+      PGPASSWORD: 1234
+    volumes:
+      - ./backups:/backup
+    networks:
+      - {{ item }}
